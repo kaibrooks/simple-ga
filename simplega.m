@@ -5,7 +5,7 @@
 %
 % A simple genetic algorithm example using MATLAB.
 %
-% Problem: find a solution to maximize x^2 for an 8-bit number
+% Problem: find a solution to maximize x^2 for an n-bit number
 %
 % This is a trivial problem with a direct solution we can solve directly
 % (not an NP problem). This program is meant to illustrate fundamentally
@@ -13,7 +13,7 @@
 %
 % This code is not optimized, in the sense that many lines could be
 % combined into a single function and the code minimized. However, since
-% this is a basic algorithm, each line is independent for clarity.
+% this is a basic algorithm, many lines are independent for clarity.
 
 
 % Init
@@ -21,21 +21,27 @@ clc
 close all
 clear all
 format
-rng('shuffle')
+rng('default')
 
 
 %% Options
 
-popSize = 8;                % number of attempts per generation
-maxGenerations = 50;        % algorithm will run this many times
-chromLength = 6;            % length of each chromosome, represents greatest binary value
+popSize = 32;               % number of attempts per generation
+maxGenerations = 2000;      % algorithm will run this many times
+chromLength = 256;          % length of each chromosome, represents greatest binary value
 f = @(x) x.^2;              % function to maximize
+
+
+fmax = (bi2de(ones(1,chromLength),'left-msb'))^2; % find theoretical max (since we know it)
+
 
 parentRate = 0.5;           % portion of members designated to breed each generation
 eliteRate = 0.1;            % portion of members who are 'elites', and always breed (as a portion of total population, not parents)
 mutationRate = 0.01;        % portion of members who mutate each generation
 
-maxLoops = 100;             % if any loop runs this many times with no changes, abort program. this prevents stalling
+maxLoops = popSize*maxGenerations*chromLength;             % if any loop runs this many times with no changes, abort program. this prevents stalling
+
+mutationNum = ceil(popSize*mutationRate); % number of members to mutate
 
 % temp vars to wipe for release
 
@@ -70,32 +76,38 @@ for generation = 1:maxGenerations
     isParent = zeros(popSize,1);
     
     % Select elites first
-    [~, selectedIndex] = maxk(fitness,eliteNum);  % find highest fitnesses, ~ removes saving the value since we don't need it
-    isParent(selectedIndex) = 1;                  % mark it in isParent
+    [~, eliteIndex] = maxk(fitness,eliteNum);  % find highest fitnesses, ~ removes saving the value since we don't need it
+    
+    isParent(eliteIndex) = 1;                  % mark it in isParent
     
     disp = [isParent fitness c];
-    fitnessHistory
+    fitnessHistory;
     
     % -- Select the rest via roulette
     % Normalize fitnesses from 0 to 1
     normFitness = fitness - min(fitness(:));
     normFitness = normFitness ./ max(normFitness(:));
     
+    normFitness(isnan(normFitness))=0.999;
+    normFitness = normFitness + 0.001; % add a small number in case a bunch of pops have zero fitness
+    
     % Subtract each members fitness from a random number, when < 0, select that
     % member (this ensures higher fitnesses have higher probilities).
     % This method starts at member 1 instead of picking a random position
     % because the order of members is already random
     
-    while sum(isParent) < (parentNum - eliteNum)+1    % pick more members until parentNum reached
-        miss = 0;                       % check number of times loop doesn't do anything
-        a = rand();                     % random number from 0 to 1
+    miss = 0;  % check number of times loop doesn't do anything
+    missMain = 0;
+    
+    while sum(isParent) <= parentNum    % pick more members until parentNum reached
+        
+        a = rand();             % random number from 0 to 1
+        
         for j = 1:popSize
             
             if isParent(j), continue, end   % skip already selected
             
             a = a - normFitness(j);          % subtract members fitness
-            
-            %fprintf('%i : %.3f - %.3f \n',j,a,normFitness(j))
             
             if a < 0
                 isParent(j) = 1;
@@ -108,34 +120,93 @@ for generation = 1:maxGenerations
             end
             
             if miss > maxLoops % kill program if loop stalls
-                error('Hit maxLoops during roulette selection')
+                error('Hit maxLoops during roulette selection loop - for j=1:popSize')
             end
             
             
         end % roulette parent selection
         
+        missMain = missMain+1;
+        if missMain > maxLoops % kill program if loop stalls
+            error('Hit maxLoops during roulette selection loop - while sum(isParent)')
+        end
+        
     end % roulette population selection
     
-    [isParent fitness c]
+    [isParent fitness c];
     
-    
-    % Breed: Select Parents
-    % Breed: Selection process (tournament, roulette, elites, etc)
-    
+    % Select two parents
     % Breed: Create new pop
     
-    % Attempt solution...
+    parentIndex = find(isParent);    % create vector of parents indexes
+    newc = zeros(1,chromLength);
+    
+    % select two parents to breed
+    for i = 1:2:parentNum
+        parenta = c(parentIndex(i),:);
+        parentb = c(parentIndex(i+1),:);
+        
+        for k = 1:4 %TODO fix number - each parent produces two offspring
+            % select crossover point
+            crossover = (randi(chromLength)-1); % pick a random point on the chromosome
+            
+            for j=1:chromLength
+                if j < crossover
+                    child(j) = parenta(j);  % first part
+                else
+                    child(j) = parentb(j);  % second part
+                end
+            end % end chromisome splicing
+            newc = [newc; child];
+            
+            
+        end % end two offspring each
+        
+    end
+    
+    % delete the temp entry
+    newc(1, :) = [];    % cleanup the temp entry
+    
+    % mutate
+    % bit flip mutation
+    for i = 1:mutationNum
+        randChromIndex = randi(chromLength);
+        randPopIndex = randi(popSize);
+        
+        if newc(randPopIndex,randChromIndex) == 0
+            newc(randPopIndex,randChromIndex) = 1;
+            %fprintf('Mutated member %i at position %i - 0->1\n',randChromIndex,randPopIndex)
+        else
+           newc(randPopIndex,randChromIndex) = 0;
+           %fprintf('Mutated member %i at position %i - 1->0\n',randChromIndex,randPopIndex)
+        end
+        
+        
+        
+    end
+    
+        
+    % write new chromosomes
+    c = newc(randperm(size(newc,1)),:); % randomize the population (to ensure random roulette selection)
     
     
-    % Results: Plot
-    % Results: Display
-    
-    
-    
-    
-    
-    % Functions
-    % Func: Binary to Decimal and back
-    
-    
+    fprintf('Generation: %4i \t Fitness: %e \t Optimized: %6.2f%%  \n',generation,fitnessHistory(generation), 100*(fitnessHistory(generation)/fmax))
 end
+
+plot(fitnessHistory)
+xlabel('Generation')
+ylabel('Fitness')
+ylim([fmax*0.8 fmax])
+grid on
+% Shuffle
+
+% Results: Plot
+% Results: Display
+
+
+
+
+
+% Functions
+% Func: Binary to Decimal and back
+% end 1:generation loop
